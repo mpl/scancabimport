@@ -253,12 +253,12 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 			fv.SetString(pv.GetStringValue())
 		case typeOfKeyPtrSlice.Kind():
 			println(f.field.Name)
-			var keys []reflect.Value
+			var keys []*Key
 			list := pv.GetListValue()
 			for _,lv := range list {
-				keys = append(keys, reflect.ValueOf(protoToKey(lv.GetKeyValue())))
+				keys = append(keys, protoToKey(lv.GetKeyValue()))
 			}
-			fv = reflect.AppendSlice(nil, keys)
+			fv.Set(reflect.ValueOf(keys))
 		case typeOfByteSlice.Kind():
 			fv.SetBytes(pv.GetBlobValue())
 		case typeOfKeyPtr.Kind():

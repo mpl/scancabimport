@@ -299,6 +299,9 @@ func main() {
 			if err := ds.Get(v.Document, document); err != nil {
 				log.Fatal(err)
 			}
+			for _, dskey := range document.Pages {
+				fmt.Printf("%v\n", dskey)
+			}
 			fmt.Printf("Document: %v\n", document)
 		}
 	}
