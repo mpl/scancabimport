@@ -43,7 +43,7 @@ as the blobs don't seem to be in the bucket when I ls with gsutil.
 7) back to approach in 1): was getting 403 because GCS JSON API was needed too. Getting 404s now.
 But looked through API explorer at https://developers.google.com/apis-explorer/#p/storage/v1/storage.objects.list
 which shows same as with gsutil, i.e. not my files. So probably no go that way.
-8) back to 6).
+8) back to 6). -> yep, that works.
 */
 
 var (
@@ -77,7 +77,8 @@ type MediaObject struct {
 
 	// IntID is the entity ID of the key associated with this MediaObject struct
 	// Not stored in datastore but filled on each get()
-	IntID int64 `datastore:"-"`
+	//	IntID int64 `datastore:"-"`
+	ResourceId int64 `datastore:"-"`
 
 	// Blob is the key of blobstore entry with this uploaded file
 	Blob string
@@ -171,13 +172,19 @@ func getScans() ([]*MediaObject, error) {
 	query = query.Limit(scansRequestLimit)
 	for {
 		sc := make([]*MediaObject, scansRequestLimit)
-		//		keys, next, err := ds.RunQuery(query, sc)
-		_, next, err := ds.RunQuery(query, sc)
+		keys, next, err := ds.RunQuery(query, sc)
 		if err != nil {
 			return nil, err
 		}
+		// get the key id and store it in the media object because we'll need it
+		// to fetch the corresponding file from the blobstore later.
+		for i, obj := range sc {
+			if obj == nil {
+				break
+			}
+			obj.ResourceId = keys[i].ID()
+		}
 		scans = append(scans, sc...)
-		// TODO(mpl): get the MediaObject IntId from the key
 		//		for _, v := range keys {
 		//			fmt.Printf("key: %v, ", v)
 		//		}
@@ -274,6 +281,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// TODO(mpl): try using an authed transport from transportFromAPIKey, so we don't
+	// have to setup two different auth.
+	// The contrary is not possible (i.e. using transportFromServiceAccount for getting
+	// the blobs/files) because the server would see the service account email as the userinfo,
+	// instead of our own joe user email, who is the owner of the objects in the datastore.
 	ds, err = datastore.NewDataset(projectId, serviceAccount, pemKeyBytes)
 	if err != nil {
 		log.Fatal(err)
