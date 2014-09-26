@@ -122,7 +122,6 @@ func (t *Tx) Get(key *Key, dest interface{}) error {
 // 		fmt.Println(ptr1, ptr2)
 //
 func (t *Tx) GetAll(keys []*Key, dest interface{}) error {
-	println("IN GET ALL")
 	if len(keys) == 0 {
 		return nil
 	}

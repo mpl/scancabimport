@@ -14,7 +14,6 @@ type client struct {
 }
 
 func (c *client) call(url string, req proto.Message, resp proto.Message) (err error) {
-	println("CLIENT CALL")
 	client := http.Client{Transport: c.transport}
 	payload, err := proto.Marshal(req)
 	if err != nil {

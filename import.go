@@ -53,7 +53,7 @@ var (
 	ds             *datastore.Dataset
 	cl             *http.Client
 	clientId       = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
-	clientSecret   = "nope"
+	clientSecret   = "yAkW3QBLty78bwIq1njZ1791"
 )
 
 // UserInfo represents the metadata associated with the Google User
@@ -113,10 +113,10 @@ type MediaObject struct {
 // (each is a MediaObject), for example.
 type Document struct {
 	// Owner is the key of the UserInfo of the user that created the Document
-	//	Owner *datastore.Key
+	Owner *datastore.Key
 
 	// Pages are the keys of each Media Object that contitute this Document
-	//	Pages []*datastore.Key
+	Pages []*datastore.Key
 
 	// IntID is the entity ID of the key associated with this Document struct
 	// Not stored in datastore but filled on each get()
@@ -160,7 +160,10 @@ type Document struct {
 	DueDate time.Time
 }
 
-const scansRequestLimit = 5
+const (
+	scansRequestLimit = 5
+	docsRequestLimit = 5
+)
 
 func getScans() ([]*MediaObject, error) {
 	var scans []*MediaObject
@@ -168,15 +171,16 @@ func getScans() ([]*MediaObject, error) {
 	query = query.Limit(scansRequestLimit)
 	for {
 		sc := make([]*MediaObject, scansRequestLimit)
-		keys, next, err := ds.RunQuery(query, sc)
+//		keys, next, err := ds.RunQuery(query, sc)
+		_, next, err := ds.RunQuery(query, sc)
 		if err != nil {
 			return nil, err
 		}
 		scans = append(scans, sc...)
 		// TODO(mpl): get the MediaObject IntId from the key
-		for _, v := range keys {
-			fmt.Printf("key: %v, ", v)
-		}
+//		for _, v := range keys {
+//			fmt.Printf("key: %v, ", v)
+//		}
 		if next == nil {
 			break
 		}
@@ -185,15 +189,41 @@ func getScans() ([]*MediaObject, error) {
 	return scans, nil
 }
 
-func getScannedFile(key string) error {
+func getDocuments() ([]*Document, error) {
+	var docs []*Document
+	query := ds.NewQuery("Document")
+	query = query.Limit(scansRequestLimit)
+	for {
+		dc := make([]*Document, docsRequestLimit)
+//		keys, next, err := ds.RunQuery(query, dc)
+		_, next, err := ds.RunQuery(query, dc)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, dc...)
+//		for _, v := range keys {
+//			fmt.Printf("key: %v, ", v)
+//		}
+		if next == nil {
+			break
+		}
+		query = next
+	}
+	return docs, nil
+}
+
+
+func getScannedFile(key, filename string) error {
 	//	"https://scancabcamli.appspot.com/resource/5066549580791808/glenda.png"
-	//	resp, err := cl.Get("https://scancabcamli.appspot.com/resource/"+key+"/glenda.png")
+/*
 	req, err := http.NewRequest("GET", "https://scancabcamli.appspot.com/resource/"+key+"/glenda.png", nil)
+	req.Header.Add("X-AppEngine-User-Email", "mathieu.lonjaret@gmail.com")
+	resp, err := cl.Do(req)
 	if err != nil {
 		return err
 	}
-	req.Header.Add("X-AppEngine-User-Email", "mathieu.lonjaret@gmail.com")
-	resp, err := cl.Do(req)
+*/
+	resp, err := cl.Get("https://" + projectId + ".appspot.com/resource/"+key+"/"+filename)
 	if err != nil {
 		return err
 	}
@@ -239,37 +269,7 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	return conf.NewTransportWithCode(authorizationCode)
 }
 
-func transportFromServiceAccount() (*oauth2.Transport, error) {
-	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")
-	if err != nil {
-		log.Fatal(err)
-	}
-	conf, err := google.NewServiceAccountConfig(&oauth2.JWTOptions{
-		Email:      serviceAccount,
-		PrivateKey: pemKeyBytes,
-		Scopes: []string{
-			//			gcstorage2.ScopeFullControl,
-			"https://www.googleapis.com/auth/appengine.admin",
-			"https://www.googleapis.com/auth/userinfo.email",
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	return conf.NewTransport(), nil
-}
-
 func main() {
-	tr, err := transportFromAPIKey()
-	if err != nil {
-		log.Fatal(err)
-	}
-	cl = &http.Client{Transport: tr}
-	scanBlobKey := "5066549580791808"
-	if err := getScannedFile(scanBlobKey); err != nil {
-		log.Fatal(err)
-	}
-	return
 
 	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")
 	if err != nil {
@@ -290,14 +290,65 @@ func main() {
 			if err := ds.Get(v.Owner, userInfo); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf("Owner: %v\n", userInfo)
+//			fmt.Printf("Owner: %v\n", userInfo)
 		}
 		if v != nil && v.Document != nil {
 			document := &Document{}
+//				Pages: make([]*datastore.Key,5),
+//			}
 			if err := ds.Get(v.Document, document); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Printf("Document: %v\n", document)
 		}
 	}
+	return
+
+	docs, err := getDocuments()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, v := range docs {
+		fmt.Printf("%v\n", v)
+	}
+	return
+
+	// TODO(mpl): tokencache
+	tr, err := transportFromAPIKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cl = &http.Client{Transport: tr}
+	scanBlobKey := "5066549580791808"
+	if err := getScannedFile(scanBlobKey, "glenda.png"); err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+
+
+
+
+
+
+
+func transportFromServiceAccount() (*oauth2.Transport, error) {
+	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+	conf, err := google.NewServiceAccountConfig(&oauth2.JWTOptions{
+		Email:      serviceAccount,
+		PrivateKey: pemKeyBytes,
+		Scopes: []string{
+			//			gcstorage2.ScopeFullControl,
+			"https://www.googleapis.com/auth/appengine.admin",
+			"https://www.googleapis.com/auth/userinfo.email",
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	return conf.NewTransport(), nil
 }

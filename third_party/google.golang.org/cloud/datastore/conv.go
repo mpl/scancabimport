@@ -16,6 +16,7 @@ package datastore
 
 import (
 	"errors"
+//	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -51,6 +52,7 @@ var (
 	typeOfByteSlice = reflect.TypeOf([]byte{})
 	typeOfTime      = reflect.TypeOf(time.Time{})
 	typeOfKeyPtr    = reflect.TypeOf(&Key{})
+	typeOfKeyPtrSlice = reflect.SliceOf(typeOfKeyPtr)
 )
 
 type fieldMeta struct {
@@ -249,6 +251,14 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 			fv.SetFloat(pv.GetDoubleValue())
 		case reflect.String:
 			fv.SetString(pv.GetStringValue())
+		case typeOfKeyPtrSlice.Kind():
+			println(f.field.Name)
+			var keys []reflect.Value
+			list := pv.GetListValue()
+			for _,lv := range list {
+				keys = append(keys, reflect.ValueOf(protoToKey(lv.GetKeyValue())))
+			}
+			fv = reflect.AppendSlice(nil, keys)
 		case typeOfByteSlice.Kind():
 			fv.SetBytes(pv.GetBlobValue())
 		case typeOfKeyPtr.Kind():
