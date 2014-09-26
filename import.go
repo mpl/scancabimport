@@ -53,7 +53,7 @@ var (
 	ds             *datastore.Dataset
 	cl             *http.Client
 	clientId       = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
-	clientSecret   = "yAkW3QBLty78bwIq1njZ1791"
+	clientSecret   = "nope"
 )
 
 // UserInfo represents the metadata associated with the Google User
@@ -162,7 +162,7 @@ type Document struct {
 
 const (
 	scansRequestLimit = 5
-	docsRequestLimit = 5
+	docsRequestLimit  = 5
 )
 
 func getScans() ([]*MediaObject, error) {
@@ -171,16 +171,16 @@ func getScans() ([]*MediaObject, error) {
 	query = query.Limit(scansRequestLimit)
 	for {
 		sc := make([]*MediaObject, scansRequestLimit)
-//		keys, next, err := ds.RunQuery(query, sc)
+		//		keys, next, err := ds.RunQuery(query, sc)
 		_, next, err := ds.RunQuery(query, sc)
 		if err != nil {
 			return nil, err
 		}
 		scans = append(scans, sc...)
 		// TODO(mpl): get the MediaObject IntId from the key
-//		for _, v := range keys {
-//			fmt.Printf("key: %v, ", v)
-//		}
+		//		for _, v := range keys {
+		//			fmt.Printf("key: %v, ", v)
+		//		}
 		if next == nil {
 			break
 		}
@@ -195,15 +195,15 @@ func getDocuments() ([]*Document, error) {
 	query = query.Limit(scansRequestLimit)
 	for {
 		dc := make([]*Document, docsRequestLimit)
-//		keys, next, err := ds.RunQuery(query, dc)
+		//		keys, next, err := ds.RunQuery(query, dc)
 		_, next, err := ds.RunQuery(query, dc)
 		if err != nil {
 			return nil, err
 		}
 		docs = append(docs, dc...)
-//		for _, v := range keys {
-//			fmt.Printf("key: %v, ", v)
-//		}
+		//		for _, v := range keys {
+		//			fmt.Printf("key: %v, ", v)
+		//		}
 		if next == nil {
 			break
 		}
@@ -212,18 +212,17 @@ func getDocuments() ([]*Document, error) {
 	return docs, nil
 }
 
-
 func getScannedFile(key, filename string) error {
 	//	"https://scancabcamli.appspot.com/resource/5066549580791808/glenda.png"
-/*
-	req, err := http.NewRequest("GET", "https://scancabcamli.appspot.com/resource/"+key+"/glenda.png", nil)
-	req.Header.Add("X-AppEngine-User-Email", "mathieu.lonjaret@gmail.com")
-	resp, err := cl.Do(req)
-	if err != nil {
-		return err
-	}
-*/
-	resp, err := cl.Get("https://" + projectId + ".appspot.com/resource/"+key+"/"+filename)
+	/*
+		req, err := http.NewRequest("GET", "https://scancabcamli.appspot.com/resource/"+key+"/glenda.png", nil)
+		req.Header.Add("X-AppEngine-User-Email", "mathieu.lonjaret@gmail.com")
+		resp, err := cl.Do(req)
+		if err != nil {
+			return err
+		}
+	*/
+	resp, err := cl.Get("https://" + projectId + ".appspot.com/resource/" + key + "/" + filename)
 	if err != nil {
 		return err
 	}
@@ -283,30 +282,39 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	documents := make(map[int64]*Document)
+	users := make(map[int64]*UserInfo)
 	for _, v := range scans {
 		fmt.Printf("%v\n", v)
 		if v != nil && v.Owner != nil {
-			userInfo := &UserInfo{}
-			if err := ds.Get(v.Owner, userInfo); err != nil {
-				log.Fatal(err)
+			userId := v.Owner.ID()
+			if _, ok := users[userId]; !ok {
+				userInfo := &UserInfo{}
+				if err := ds.Get(v.Owner, userInfo); err != nil {
+					log.Fatal(err)
+				}
+				users[userId] = userInfo
+				fmt.Printf("Owner: %v\n", userInfo)
 			}
-//			fmt.Printf("Owner: %v\n", userInfo)
 		}
-		if v != nil && v.Document != nil {
+		if v != nil && !v.LacksDocument && v.Document != nil {
+			println("HAS DOCUMENT")
+			docId := v.Document.ID()
+			if _, ok := documents[docId]; ok {
+				println("already got it: " + fmt.Sprintf("%d", docId))
+				continue
+			}
 			document := &Document{}
-//				Pages: make([]*datastore.Key,5),
-//			}
 			if err := ds.Get(v.Document, document); err != nil {
 				log.Fatal(err)
 			}
-			for _, dskey := range document.Pages {
-				fmt.Printf("%v\n", dskey)
-			}
+			documents[docId] = document
 			fmt.Printf("Document: %v\n", document)
 		}
 	}
 	return
 
+	// TODO(mpl): rm getDocuments, as we should have gotten them all from the scans.
 	docs, err := getDocuments()
 	if err != nil {
 		log.Fatal(err)
@@ -328,13 +336,6 @@ func main() {
 	}
 
 }
-
-
-
-
-
-
-
 
 func transportFromServiceAccount() (*oauth2.Transport, error) {
 	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")

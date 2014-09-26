@@ -16,7 +16,7 @@ package datastore
 
 import (
 	"errors"
-//	"fmt"
+	//	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -49,9 +49,9 @@ var sortDirectionToProto = map[sortDirection]*pb.PropertyOrder_Direction{
 }
 
 var (
-	typeOfByteSlice = reflect.TypeOf([]byte{})
-	typeOfTime      = reflect.TypeOf(time.Time{})
-	typeOfKeyPtr    = reflect.TypeOf(&Key{})
+	typeOfByteSlice   = reflect.TypeOf([]byte{})
+	typeOfTime        = reflect.TypeOf(time.Time{})
+	typeOfKeyPtr      = reflect.TypeOf(&Key{})
 	typeOfKeyPtrSlice = reflect.SliceOf(typeOfKeyPtr)
 )
 
@@ -252,10 +252,8 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 		case reflect.String:
 			fv.SetString(pv.GetStringValue())
 		case typeOfKeyPtrSlice.Kind():
-			println(f.field.Name)
 			var keys []*Key
-			list := pv.GetListValue()
-			for _,lv := range list {
+			for _, lv := range pv.GetListValue() {
 				keys = append(keys, protoToKey(lv.GetKeyValue()))
 			}
 			fv.Set(reflect.ValueOf(keys))
