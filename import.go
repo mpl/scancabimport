@@ -19,6 +19,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -29,7 +30,6 @@ import (
 	"time"
 
 	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2"
-	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2/google"
 	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud/datastore"
 )
 
@@ -49,14 +49,22 @@ which shows same as with gsutil, i.e. not my files. So probably no go that way.
 */
 
 var (
+	verbose = flag.Bool("v", false, "verbose")
+)
+
+var (
+	// for the datastore, where we get the scans and documents metadata.
 	projectId      = "scancabcamli"
 	serviceAccount = "886924983567-uiln6pus9iuumdq3i0vav0ntveodas0r@developer.gserviceaccount.com"
-	myEmail        = "mathieu.lonjaret@gmail.com"
+	pemFile        = "scancabcamli-496f5f6eb01b.pem"
 	ds             *datastore.Dataset
+
+	// we get the scans themselves, which are in the blobstore, through hitting the app itself.
 	cl             *http.Client
 	clientId       = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
 	clientSecret   = "nope"
-	tokenCacheFile = filepath.Join(os.Getenv("HOME"), "tokencache.json")
+	tokenCacheFile = "tokencache.json"
+	scansDir       = "scans"
 )
 
 // UserInfo represents the metadata associated with the Google User
@@ -165,6 +173,7 @@ type Document struct {
 }
 
 const (
+	// TODO(mpl): figure out how high these can be cranked up.
 	scansRequestLimit = 5
 	docsRequestLimit  = 5
 )
@@ -188,9 +197,6 @@ func getScans() ([]*MediaObject, error) {
 			obj.ResourceId = keys[i].ID()
 		}
 		scans = append(scans, sc...)
-		//		for _, v := range keys {
-		//			fmt.Printf("key: %v, ", v)
-		//		}
 		if next == nil {
 			break
 		}
@@ -211,9 +217,6 @@ func getDocuments() ([]*Document, error) {
 			return nil, err
 		}
 		docs = append(docs, dc...)
-		//		for _, v := range keys {
-		//			fmt.Printf("key: %v, ", v)
-		//		}
 		if next == nil {
 			break
 		}
@@ -222,17 +225,21 @@ func getDocuments() ([]*Document, error) {
 	return docs, nil
 }
 
-func getScannedFile(key, filename string) error {
-	//	"https://scancabcamli.appspot.com/resource/5066549580791808/glenda.png"
-	/*
-		req, err := http.NewRequest("GET", "https://scancabcamli.appspot.com/resource/"+key+"/glenda.png", nil)
-		req.Header.Add("X-AppEngine-User-Email", "mathieu.lonjaret@gmail.com")
-		resp, err := cl.Do(req)
-		if err != nil {
-			return err
-		}
-	*/
-	resp, err := cl.Get("https://" + projectId + ".appspot.com/resource/" + key + "/" + filename)
+func getScannedFile(resourceId, filename string) error {
+	if resourceId == "" {
+		log.Printf("WARNING: Not fetching scan because empty resourceId")
+		return nil
+	}
+	if resourceId == "" {
+		log.Printf("WARNING: Not fetching scan because empty filename")
+		return nil
+	}
+	filePath := filepath.Join(scansDir, filename)
+	if _, err := os.Stat(filePath); err == nil {
+		log.Printf("%s already exists, skipping download.", filePath)
+		return nil
+	}
+	resp, err := cl.Get("https://" + projectId + ".appspot.com/resource/" + resourceId + "/" + filename)
 	if err != nil {
 		return err
 	}
@@ -240,12 +247,11 @@ func getScannedFile(key, filename string) error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("Status %v", resp.Status)
 	}
-
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filename, body, 0700)
+	return ioutil.WriteFile(filePath, body, 0700)
 }
 
 func cacheToken(tok *oauth2.Token) error {
@@ -301,8 +307,9 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
 	url := conf.AuthCodeURL("state", "online", "auto")
-	//      url := conf.AuthCodeURL("state", "offline", "auto")
+	// url := conf.AuthCodeURL("state", "offline", "auto")
 	fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
+	fmt.Println("And enter the authorization string displayed in your browser:")
 
 	input := bufio.NewReader(os.Stdin)
 	line, _, err := input.ReadLine()
@@ -321,8 +328,13 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 }
 
 func main() {
+	flag.Parse()
 
-	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")
+	if err := os.MkdirAll(scansDir, 0700); err != nil {
+		log.Fatal(err)
+	}
+
+	pemKeyBytes, err := ioutil.ReadFile(pemFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -335,6 +347,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// TODO(mpl): write scans + docs on json files
 	scans, err := getScans()
 	if err != nil {
 		log.Fatal(err)
@@ -345,13 +359,16 @@ func main() {
 		log.Fatal(err)
 	}
 	cl = &http.Client{Transport: tr}
+
 	documents := make(map[int64]*Document)
 	users := make(map[int64]*UserInfo)
 	for _, v := range scans {
 		if v == nil {
 			continue
 		}
-		fmt.Printf("%v\n", v)
+		if *verbose {
+			fmt.Printf("%v\n", v)
+		}
 		if v.Owner != nil {
 			userId := v.Owner.ID()
 			if _, ok := users[userId]; !ok {
@@ -360,18 +377,20 @@ func main() {
 					log.Fatal(err)
 				}
 				users[userId] = userInfo
-				fmt.Printf("Owner: %v\n", userInfo)
+				if *verbose {
+					fmt.Printf("Owner: %v\n", userInfo)
+				}
 			}
 		}
-		// TODO(mpl): skip if file already exists, or if any of v.ResourceId, v.Filename not good.
 		if err := getScannedFile(fmt.Sprintf("%d", v.ResourceId), v.Filename); err != nil {
 			log.Fatal(err)
 		}
 		if v != nil && !v.LacksDocument && v.Document != nil {
-			println("HAS DOCUMENT")
 			docId := v.Document.ID()
 			if _, ok := documents[docId]; ok {
-				println("already got it: " + fmt.Sprintf("%d", docId))
+				if *verbose {
+					fmt.Printf("Document cache hit: %d\n", docId)
+				}
 				continue
 			}
 			document := &Document{}
@@ -379,52 +398,9 @@ func main() {
 				log.Fatal(err)
 			}
 			documents[docId] = document
-			fmt.Printf("Document: %v\n", document)
+			if *verbose {
+				fmt.Printf("Document: %v\n", document)
+			}
 		}
 	}
-	return
-
-	/*
-		// TODO(mpl): rm getDocuments, as we should have gotten them all from the scans.
-		docs, err := getDocuments()
-		if err != nil {
-			log.Fatal(err)
-		}
-		for _, v := range docs {
-			fmt.Printf("%v\n", v)
-		}
-		return
-
-		// TODO(mpl): tokencache
-		tr, err := transportFromAPIKey()
-		if err != nil {
-			log.Fatal(err)
-		}
-		cl = &http.Client{Transport: tr}
-		scanBlobKey := "5066549580791808"
-		if err := getScannedFile(scanBlobKey, "glenda.png"); err != nil {
-			log.Fatal(err)
-		}
-	*/
-
-}
-
-func transportFromServiceAccount() (*oauth2.Transport, error) {
-	pemKeyBytes, err := ioutil.ReadFile("/home/mpl/scancabcamli-496f5f6eb01b.pem")
-	if err != nil {
-		log.Fatal(err)
-	}
-	conf, err := google.NewServiceAccountConfig(&oauth2.JWTOptions{
-		Email:      serviceAccount,
-		PrivateKey: pemKeyBytes,
-		Scopes: []string{
-			//			gcstorage2.ScopeFullControl,
-			"https://www.googleapis.com/auth/appengine.admin",
-			"https://www.googleapis.com/auth/userinfo.email",
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	return conf.NewTransport(), nil
 }
