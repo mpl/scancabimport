@@ -53,16 +53,14 @@ var (
 )
 
 var (
-	// for the datastore, where we get the scans and documents metadata.
-	projectId      = "scancabcamli"
-	serviceAccount = "886924983567-uiln6pus9iuumdq3i0vav0ntveodas0r@developer.gserviceaccount.com"
-	pemFile        = "scancabcamli-496f5f6eb01b.pem"
-	ds             *datastore.Dataset
+	projectId = "scancabcamli"
 
-	// we get the scans themselves, which are in the blobstore, through hitting the app itself.
+	// APIkey credentials. used to auth against both the app itself, and the datastore API.
+	clientId     = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
+	clientSecret = "nope"
+
+	ds             *datastore.Dataset
 	cl             *http.Client
-	clientId       = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
-	clientSecret   = "nope"
 	tokenCacheFile = "tokencache.json"
 	scansDir       = "scans"
 )
@@ -285,7 +283,8 @@ func cachedToken() (*oauth2.Token, error) {
 
 func transportFromAPIKey() (*oauth2.Transport, error) {
 	conf, err := oauth2.NewConfig(&oauth2.Options{
-		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin",
+		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin", // TODO(mpl): maybe not needed?
+			"https://www.googleapis.com/auth/datastore",
 			"https://www.googleapis.com/auth/userinfo.email"},
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
@@ -334,16 +333,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	pemKeyBytes, err := ioutil.ReadFile(pemFile)
+	tr, err := transportFromAPIKey()
 	if err != nil {
 		log.Fatal(err)
 	}
-	// TODO(mpl): try using an authed transport from transportFromAPIKey, so we don't
-	// have to setup two different auth.
-	// The contrary is not possible (i.e. using transportFromServiceAccount for getting
-	// the blobs/files) because the server would see the service account email as the userinfo,
-	// instead of our own joe user email, who is the owner of the objects in the datastore.
-	ds, err = datastore.NewDataset(projectId, serviceAccount, pemKeyBytes)
+	cl = &http.Client{Transport: tr}
+
+	ds, err = datastore.NewDatasetWithTransport(projectId, tr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -353,12 +349,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	tr, err := transportFromAPIKey()
-	if err != nil {
-		log.Fatal(err)
-	}
-	cl = &http.Client{Transport: tr}
 
 	documents := make(map[int64]*Document)
 	users := make(map[int64]*UserInfo)

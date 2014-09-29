@@ -59,6 +59,16 @@ func NewDatasetWithNS(projectID, ns, email string, privateKey []byte) (*Dataset,
 	}, nil
 }
 
+func NewDatasetWithTransport(projectID string, tr *oauth2.Transport) (*Dataset, error) {
+	return &Dataset{
+		namespace: "",
+		tx: &Tx{
+			datasetID: projectID,
+			client:    &client{transport: tr},
+		},
+	}, nil
+}
+
 func (d *Dataset) NewNamedKey(kind string, name string) *Key {
 	return &Key{namespace: d.namespace, kind: kind, name: name}
 }
