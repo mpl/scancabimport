@@ -18,11 +18,13 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -54,6 +56,7 @@ var (
 	cl             *http.Client
 	clientId       = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
 	clientSecret   = "nope"
+	tokenCacheFile = filepath.Join(os.Getenv("HOME"), "tokencache.json")
 )
 
 // UserInfo represents the metadata associated with the Google User
@@ -242,7 +245,36 @@ func getScannedFile(key, filename string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile("/home/mpl/glenda.png", body, 0700)
+	return ioutil.WriteFile(filename, body, 0700)
+}
+
+func cacheToken(tok *oauth2.Token) error {
+	file, err := os.OpenFile(tokenCacheFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			panic(err)
+		}
+	}()
+	if err := json.NewEncoder(file).Encode(tok); err != nil {
+		return err
+	}
+	return nil
+}
+
+func cachedToken() (*oauth2.Token, error) {
+	file, err := os.Open(tokenCacheFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	tok := &oauth2.Token{}
+	if err := json.NewDecoder(file).Decode(tok); err != nil {
+		return nil, err
+	}
+	return tok, nil
 }
 
 func transportFromAPIKey() (*oauth2.Transport, error) {
@@ -259,6 +291,13 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 		return nil, err
 	}
 
+	token, err := cachedToken()
+	if err == nil {
+		tr := conf.NewTransport()
+		tr.SetToken(token)
+		return tr, nil
+	}
+
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
 	url := conf.AuthCodeURL("state", "online", "auto")
@@ -271,8 +310,14 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 		log.Fatalf("Failed to read line: %v", err)
 	}
 	authorizationCode := strings.TrimSpace(string(line))
-
-	return conf.NewTransportWithCode(authorizationCode)
+	tr, err := conf.NewTransportWithCode(authorizationCode)
+	if err != nil {
+		return nil, err
+	}
+	if err := cacheToken(tr.Token()); err != nil {
+		return nil, err
+	}
+	return tr, nil
 }
 
 func main() {
@@ -294,11 +339,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	tr, err := transportFromAPIKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cl = &http.Client{Transport: tr}
 	documents := make(map[int64]*Document)
 	users := make(map[int64]*UserInfo)
 	for _, v := range scans {
+		if v == nil {
+			continue
+		}
 		fmt.Printf("%v\n", v)
-		if v != nil && v.Owner != nil {
+		if v.Owner != nil {
 			userId := v.Owner.ID()
 			if _, ok := users[userId]; !ok {
 				userInfo := &UserInfo{}
@@ -308,6 +362,10 @@ func main() {
 				users[userId] = userInfo
 				fmt.Printf("Owner: %v\n", userInfo)
 			}
+		}
+		// TODO(mpl): skip if file already exists, or if any of v.ResourceId, v.Filename not good.
+		if err := getScannedFile(fmt.Sprintf("%d", v.ResourceId), v.Filename); err != nil {
+			log.Fatal(err)
 		}
 		if v != nil && !v.LacksDocument && v.Document != nil {
 			println("HAS DOCUMENT")
@@ -326,26 +384,28 @@ func main() {
 	}
 	return
 
-	// TODO(mpl): rm getDocuments, as we should have gotten them all from the scans.
-	docs, err := getDocuments()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, v := range docs {
-		fmt.Printf("%v\n", v)
-	}
-	return
+	/*
+		// TODO(mpl): rm getDocuments, as we should have gotten them all from the scans.
+		docs, err := getDocuments()
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, v := range docs {
+			fmt.Printf("%v\n", v)
+		}
+		return
 
-	// TODO(mpl): tokencache
-	tr, err := transportFromAPIKey()
-	if err != nil {
-		log.Fatal(err)
-	}
-	cl = &http.Client{Transport: tr}
-	scanBlobKey := "5066549580791808"
-	if err := getScannedFile(scanBlobKey, "glenda.png"); err != nil {
-		log.Fatal(err)
-	}
+		// TODO(mpl): tokencache
+		tr, err := transportFromAPIKey()
+		if err != nil {
+			log.Fatal(err)
+		}
+		cl = &http.Client{Transport: tr}
+		scanBlobKey := "5066549580791808"
+		if err := getScannedFile(scanBlobKey, "glenda.png"); err != nil {
+			log.Fatal(err)
+		}
+	*/
 
 }
 
