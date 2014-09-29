@@ -14,6 +14,10 @@
 
 package datastore
 
+import (
+	"fmt"
+)
+
 // Key represents the datastore key for a stored entity, and is immutable.
 type Key struct {
 	kind   string
@@ -71,3 +75,11 @@ func (k *Key) IsEqual(o *Key) bool {
 		o = o.parent
 	}
 }
+
+func (k *Key) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("%d", k.ID())), nil
+}
+
+//func (k *Key) UnmarshalJSON([]byte) error {
+//
+//}

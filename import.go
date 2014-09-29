@@ -33,36 +33,26 @@ import (
 	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud/datastore"
 )
 
-/*
-To get blobs, already tried:
-1) gcs with google.golang.org/cloud/storage -> getting a 403. Plus that wouldn't work anyway
-as the blobs don't seem to be in the bucket when I ls with gsutil.
-2) oauth2 with code.google.com/p/goauth2/oauth + GET on /resource -> getting redirected.
-3) oauth2 with github.com/golang/oauth2 + GET on /resource -> same thing.
-4) oauth with github.com/garyburd/go-oauth/oauth -> getting a 400, but maybe I half-assed it.
-5) went back to github.com/golang/oauth2, and added X-AppEngine-User-Email header -> not better.
-6) go doc hinted at the problem: there's still a login: required in app.yaml, that oauth does not override. need to test and confirm (that we're ok without it).
-7) back to approach in 1): was getting 403 because GCS JSON API was needed too. Getting 404s now.
-But looked through API explorer at https://developers.google.com/apis-explorer/#p/storage/v1/storage.objects.list
-which shows same as with gsutil, i.e. not my files. So probably no go that way.
-8) back to 6). -> yep, that works.
-*/
-
 var (
 	verbose = flag.Bool("v", false, "verbose")
 )
 
-var (
+const (
 	projectId = "scancabcamli"
 
 	// APIkey credentials. used to auth against both the app itself, and the datastore API.
 	clientId     = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
 	clientSecret = "nope"
 
-	ds             *datastore.Dataset
-	cl             *http.Client
 	tokenCacheFile = "tokencache.json"
-	scansDir       = "scans"
+	scansDir       = "scans"             // where the scanned files will be stored
+	mediaObjects   = "mediaObjects.json" // scans metadata
+	documents      = "documents.json"    // documents metadata
+)
+
+var (
+	ds *datastore.Dataset
+	cl *http.Client
 )
 
 // UserInfo represents the metadata associated with the Google User
@@ -82,15 +72,13 @@ type UserInfo struct {
 // MediaObject represents the metadata associated with each individual uploaded scan
 type MediaObject struct {
 	// Owner is the key of the UserInfo of the user that uploaded the file
-	Owner *datastore.Key
+	Owner *datastore.Key `json:"-"`
 
-	// IntID is the entity ID of the key associated with this MediaObject struct
-	// Not stored in datastore but filled on each get()
-	//	IntID int64 `datastore:"-"`
-	ResourceId int64 `datastore:"-"`
+	// Id is the entity ID of the key associated with this MediaObject struct
+	Id int64 `datastore:"-"`
 
 	// Blob is the key of blobstore entry with this uploaded file
-	Blob string
+	Blob string `json:"-"`
 
 	// Creation the time when this struct was originally created
 	Creation time.Time
@@ -128,9 +116,8 @@ type Document struct {
 	// Pages are the keys of each Media Object that contitute this Document
 	Pages []*datastore.Key
 
-	// IntID is the entity ID of the key associated with this Document struct
-	// Not stored in datastore but filled on each get()
-	IntID int64 `datastore:"-"`
+	// Id is the entity ID of the key associated with this Document struct
+	Id int64 `datastore:"-"`
 
 	// DocDate is the user-nominated date associated with this document. It can
 	// store any date the user likes but is intended to be when the document was
@@ -192,7 +179,7 @@ func getScans() ([]*MediaObject, error) {
 			if obj == nil {
 				break
 			}
-			obj.ResourceId = keys[i].ID()
+			obj.Id = keys[i].ID()
 		}
 		scans = append(scans, sc...)
 		if next == nil {
@@ -326,6 +313,36 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	return tr, nil
 }
 
+func writeObjects(scans []*MediaObject, docs map[int64]*Document) error {
+	f, err := os.OpenFile(mediaObjects, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(f).Encode(scans); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	docsArray := make([]*Document, len(docs))
+	for _, v := range docs {
+		docsArray = append(docsArray, v)
+	}
+	f, err = os.OpenFile(documents, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(f).Encode(docsArray); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -344,13 +361,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// TODO(mpl): write scans + docs on json files
 	scans, err := getScans()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	documents := make(map[int64]*Document)
+	docs := make(map[int64]*Document)
 	users := make(map[int64]*UserInfo)
 	for _, v := range scans {
 		if v == nil {
@@ -372,12 +388,12 @@ func main() {
 				}
 			}
 		}
-		if err := getScannedFile(fmt.Sprintf("%d", v.ResourceId), v.Filename); err != nil {
+		if err := getScannedFile(fmt.Sprintf("%d", v.Id), v.Filename); err != nil {
 			log.Fatal(err)
 		}
 		if v != nil && !v.LacksDocument && v.Document != nil {
 			docId := v.Document.ID()
-			if _, ok := documents[docId]; ok {
+			if _, ok := docs[docId]; ok {
 				if *verbose {
 					fmt.Printf("Document cache hit: %d\n", docId)
 				}
@@ -387,10 +403,15 @@ func main() {
 			if err := ds.Get(v.Document, document); err != nil {
 				log.Fatal(err)
 			}
-			documents[docId] = document
+			document.Id = docId
+			docs[docId] = document
 			if *verbose {
 				fmt.Printf("Document: %v\n", document)
 			}
 		}
+	}
+
+	if err := writeObjects(scans, docs); err != nil {
+		log.Fatal(err)
 	}
 }
