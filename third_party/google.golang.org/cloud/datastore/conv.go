@@ -16,7 +16,6 @@ package datastore
 
 import (
 	"errors"
-	//	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -52,7 +51,6 @@ var (
 	typeOfByteSlice   = reflect.TypeOf([]byte{})
 	typeOfTime        = reflect.TypeOf(time.Time{})
 	typeOfKeyPtr      = reflect.TypeOf(&Key{})
-	typeOfKeyPtrSlice = reflect.SliceOf(typeOfKeyPtr)
 )
 
 type fieldMeta struct {
@@ -136,12 +134,11 @@ func keyToProto(k *Key) *pb.Key {
 }
 
 func protoToKey(p *pb.Key) *Key {
-	pe := p.GetPathElement()
-	if len(pe) == 0 {
+	if p == nil {
 		return nil
 	}
-	keys := make([]*Key, len(pe))
-	for i, el := range pe {
+	keys := make([]*Key, len(p.GetPathElement()))
+	for i, el := range p.GetPathElement() {
 		keys[i] = &Key{
 			namespace: p.GetPartitionId().GetNamespace(),
 			kind:      el.GetKind(),
@@ -251,14 +248,22 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 			fv.SetFloat(pv.GetDoubleValue())
 		case reflect.String:
 			fv.SetString(pv.GetStringValue())
-		case typeOfKeyPtrSlice.Kind():
-			var keys []*Key
-			for _, lv := range pv.GetListValue() {
-				keys = append(keys, protoToKey(lv.GetKeyValue()))
-			}
-			fv.Set(reflect.ValueOf(keys))
 		case typeOfByteSlice.Kind():
-			fv.SetBytes(pv.GetBlobValue())
+			// slice types can not be differentiated with Kind(), so whichever
+			// case is the first in the switch would be the one used, regardless
+			// of whether the type is a slice of bytes or a slice of key pointers
+			// for example. Therefore, we use the string representation to detect
+			// when we get a slice of key pointers.
+			// TODO: remove that special case when slices/lists are handled generically.
+			if f.field.Type.String() == "[]*datastore.Key" {
+				keys := make([]*Key, 0, len(pv.GetListValue()))
+				for _, lv := range pv.GetListValue() {
+					keys = append(keys, protoToKey(lv.GetKeyValue()))
+				}
+				fv.Set(reflect.ValueOf(keys))				
+			} else {
+				fv.SetBytes(pv.GetBlobValue())
+			}
 		case typeOfKeyPtr.Kind():
 			key := protoToKey(pv.GetKeyValue())
 			fv.Set(reflect.ValueOf(key))
@@ -294,6 +299,14 @@ func objToValue(src interface{}) *pb.Value {
 		return &pb.Value{StringValue: proto.String(src.(string))}
 	case []byte:
 		return &pb.Value{BlobValue: src.([]byte)}
+	// TODO: remove that special case when lists are handled generically.
+	case []*Key:
+		keys := src.([]*Key)
+		list := make([]*pb.Value, 0, len(keys))
+		for _, v := range keys {
+			list = append(list, &pb.Value{KeyValue: keyToProto(v)})
+		}
+		return &pb.Value{ListValue: list}
 	}
 	// TODO(jbd): Support Composite types and lists.
 	return nil
