@@ -44,7 +44,7 @@ It has these top-level messages:
 */
 package pb
 
-import proto "github.com/mpl/scancabimport/third_party/code.google.com/p/goprotobuf/proto"
+import proto "code.google.com/p/goprotobuf/proto"
 import math "math"
 
 // Reference imports to suppress errors if they are not otherwise used.

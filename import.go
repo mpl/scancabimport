@@ -29,7 +29,10 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2"
+	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud"
 	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud/datastore"
 )
 
@@ -40,10 +43,6 @@ var (
 const (
 	projectId = "scancabcamli"
 
-	// APIkey credentials. used to auth against both the app itself, and the datastore API.
-	clientId     = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
-	clientSecret = "nope"
-
 	tokenCacheFile = "tokencache.json"
 	scansDir       = "scans"             // where the scanned files will be stored
 	mediaObjects   = "mediaObjects.json" // scans metadata
@@ -51,7 +50,8 @@ const (
 )
 
 var (
-	ds *datastore.Dataset
+//	ds *datastore.Dataset
+	ctx context.Context
 	cl *http.Client
 )
 
@@ -163,6 +163,7 @@ const (
 	docsRequestLimit  = 5
 )
 
+/*
 func getScans() ([]*MediaObject, error) {
 	var scans []*MediaObject
 	query := ds.NewQuery("MediaObject")
@@ -209,6 +210,7 @@ func getDocuments() ([]*Document, error) {
 	}
 	return docs, nil
 }
+*/
 
 func getScannedFile(resourceId, filename string) error {
 	if resourceId == "" {
@@ -269,6 +271,16 @@ func cachedToken() (*oauth2.Token, error) {
 }
 
 func transportFromAPIKey() (*oauth2.Transport, error) {
+	// APIkey credentials. used to auth against both the app itself, and the datastore API.
+	// Note(mpl): not service account
+	clientId := os.Getenv("CLIENTID")
+	if clientId == "" {
+		return nil, fmt.Errorf("CLIENTID not set")
+	}
+	clientSecret := os.Getenv("CLIENTSECRET")
+	if clientSecret == "" {
+		return nil, fmt.Errorf("CLIENTSECRET not set")
+	}	
 	conf, err := oauth2.NewConfig(&oauth2.Options{
 		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin", // TODO(mpl): maybe not needed?
 			"https://www.googleapis.com/auth/datastore",
@@ -356,18 +368,29 @@ func main() {
 	}
 	cl = &http.Client{Transport: tr}
 
-	ds, err = datastore.NewDatasetWithTransport(projectId, tr)
+	ctx = cloud.NewContext(projectId, cl)
+
+	n, err := datastore.NewQuery("MediaObject").Count(ctx)
 	if err != nil {
+		println("boum")
 		log.Fatal(err)
 	}
+	println(n)
 
-	scans, err := getScans()
+	var scans []*MediaObject
+	_, err =  datastore.NewQuery("MediaObject").GetAll(ctx, &scans)
 	if err != nil {
+		println("BIM")
 		log.Fatal(err)
 	}
+	
+//	scans, err := getScans()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 
-	docs := make(map[int64]*Document)
-	users := make(map[int64]*UserInfo)
+//	docs := make(map[int64]*Document)
+//	users := make(map[int64]*UserInfo)
 	for _, v := range scans {
 		if v == nil {
 			continue
@@ -375,6 +398,7 @@ func main() {
 		if *verbose {
 			fmt.Printf("%v\n", v)
 		}
+/*
 		if v.Owner != nil {
 			userId := v.Owner.ID()
 			if _, ok := users[userId]; !ok {
@@ -413,5 +437,6 @@ func main() {
 
 	if err := writeObjects(scans, docs); err != nil {
 		log.Fatal(err)
+*/
 	}
 }
