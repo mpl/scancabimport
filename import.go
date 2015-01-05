@@ -40,10 +40,6 @@ var (
 const (
 	projectId = "scancabcamli"
 
-	// APIkey credentials. used to auth against both the app itself, and the datastore API.
-	clientId     = "886924983567-hnd1dertfvi2g0lpjs72aae8hi35k364.apps.googleusercontent.com"
-	clientSecret = "nope"
-
 	tokenCacheFile = "tokencache.json"
 	scansDir       = "scans"             // where the scanned files will be stored
 	mediaObjects   = "mediaObjects.json" // scans metadata
@@ -269,6 +265,15 @@ func cachedToken() (*oauth2.Token, error) {
 }
 
 func transportFromAPIKey() (*oauth2.Transport, error) {
+	// APIkey credentials. used to auth against both the app itself, and the datastore API.
+	clientId := os.Getenv("CLIENTID")
+	if clientId == "" {
+		return nil, fmt.Errorf("CLIENTID not set")
+	}
+	clientSecret := os.Getenv("CLIENTSECRET")
+	if clientSecret == "" {
+		return nil, fmt.Errorf("CLIENTSECRET not set")
+	}
 	conf, err := oauth2.NewConfig(&oauth2.Options{
 		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin", // TODO(mpl): maybe not needed?
 			"https://www.googleapis.com/auth/datastore",
