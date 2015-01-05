@@ -105,7 +105,7 @@ type MediaObject struct {
 	// When newly uploaded, a MediaObject is not associated with a Document.
 	LacksDocument bool
 
-	Width string `datastore:"-"`
+	Width *datastore.Key
 }
 
 // Document is a structure that groups scans into a logical unit.
@@ -372,7 +372,7 @@ func main() {
 
 	ctx = cloud.NewContext(projectId, cl)
 
-	key := datastore.NewKey(ctx, "MediaObject", "broken", 0, nil)
+	key := datastore.NewKey(ctx, "MediaObject", "5066549580791808", 0, nil)
 	mo := &MediaObject{}
 	if err := datastore.Get(ctx, key, mo); err != nil {
 		println("BAM")
@@ -393,6 +393,7 @@ func main() {
 		key, err := it.Next(mo)
 		if err != nil {
 			println("PROUT")
+		fmt.Printf("%v\n", key)
 			break
 		}
 		fmt.Printf("%v\n", key)
