@@ -1,0 +1,3 @@
+for (i in `{find . -type f -name '*.go'}) { sed -i 's!"google.golang.org/cloud!"github.com/mpl/scancabimport/third_party/google.golang.org/cloud!' $i }
+for (i in `{find . -type f -name '*.go'}) { sed -i 's!"github.com/golang/protobuf/proto!"github.com/mpl/scancabimport/third_party/github.com/golang/protobuf/proto!' $i }
+
