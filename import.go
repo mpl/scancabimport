@@ -273,7 +273,7 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	clientSecret := os.Getenv("CLIENTSECRET")
 	if clientSecret == "" {
 		return nil, fmt.Errorf("CLIENTSECRET not set")
-	}
+	}       
 	conf, err := oauth2.NewConfig(&oauth2.Options{
 		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin", // TODO(mpl): maybe not needed?
 			"https://www.googleapis.com/auth/datastore",
@@ -420,3 +420,84 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+
+func (mo *MediaObject) attrs() map[string]string {
+        attrs := make(map[string]string)
+        ctime := (mo.Creation.Format() // TODO(mpl): make sure of format
+        attrs["creationTime"] = ctime
+        attrs["contentType"] = mo.ContentType
+        attrs["filename"] = mo.Filename
+        attrs["size"] = fmt.Sprintf("%d", mo.Size)
+        attrs["LacksDocument"] = fmt.Sprintf("%v", mo.LacksDocument)
+}
+
+func toSlice(m map[string]string) []string {
+        var s []string
+        for k,v := range m {
+                s = append(s, k, v)
+        }
+        return s
+}
+
+func (mo *Document) attrs() map[string]string {
+        attrs := make(map[string]string)
+        modTime := mo.DocDate.Format() // TODO(mpl): make sure of format
+        ctime := mo.Creation.Format() // TODO(mpl): make sure of format
+        dueDate := mo.DueDate.Format() // TODO(mpl): make sure of format
+        attrs["creationTime"] = ctime
+        attrs["modTime"] = modTime
+        attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
+        attrs["tag"] = mo.Tags
+        attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
+        attrs["physicalLocation"] = mo.PhysicalLocation
+        attrs["dueDate"] = dueDate
+}
+
+func uploadObjects(scans []*MediaObject, docs map[int64]*Document) error {
+        camcl := client.NewOrFail()
+        for _,v := range scans {
+                pr, err := camcl.UploadNewPermanode()
+                if err != nil {
+                        return err
+                }
+                attrs := toSlice(v.attrs())
+                if len(attrs) % 2 != 0 {
+                        return fmt.Errorf("BLABLABLA even/odd")
+                }
+                var attr string
+                for k, v := range attrs {
+                        if k % 2 == 0 {
+                                attr = v
+                                continue
+                        }
+                        _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, v))
+                        if err != nil {
+                                return err
+                        }
+                }
+        }
+        for _,v := range docs {
+                pr, err := camcl.UploadNewPermanode()
+                if err != nil {
+                        return err
+                }
+                attrs := toSlice(v.attrs())
+                if len(attrs) % 2 != 0 {
+                        return fmt.Errorf("BLABLABLA even/odd")
+                }
+                var attr string
+                for k, v := range attrs {
+                        if k % 2 == 0 {
+                                attr = v
+                                continue
+                        }
+                        _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, v))
+                        if err != nil {
+                                return err
+                        }
+                }
+        }
+
+}
+
