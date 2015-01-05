@@ -104,6 +104,8 @@ type MediaObject struct {
 	// LacksDocument is false when this MediaObject is associated with a Document.
 	// When newly uploaded, a MediaObject is not associated with a Document.
 	LacksDocument bool
+
+	Width string `datastore:"-"`
 }
 
 // Document is a structure that groups scans into a logical unit.
@@ -306,7 +308,7 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	// for the scopes specified above.
 	url := conf.AuthCodeURL("state", "online", "auto")
 	// url := conf.AuthCodeURL("state", "offline", "auto")
-	fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
+	fmt.Printf("Visit the URL for the auth dialog:\n%v\n", url)
 	fmt.Println("And enter the authorization string displayed in your browser:")
 
 	input := bufio.NewReader(os.Stdin)
@@ -370,12 +372,32 @@ func main() {
 
 	ctx = cloud.NewContext(projectId, cl)
 
+	key := datastore.NewKey(ctx, "MediaObject", "broken", 0, nil)
+	mo := &MediaObject{}
+	if err := datastore.Get(ctx, key, mo); err != nil {
+		println("BAM")
+		log.Fatal(err)
+	}
+	fmt.Printf("%v\n", mo.Filename)
+
 	n, err := datastore.NewQuery("MediaObject").Count(ctx)
 	if err != nil {
 		println("boum")
 		log.Fatal(err)
 	}
 	println(n)
+
+	it := datastore.NewQuery("MediaObject").Run(ctx)
+	for {
+		mo := &MediaObject{}
+		key, err := it.Next(mo)
+		if err != nil {
+			println("PROUT")
+			break
+		}
+		fmt.Printf("%v\n", key)
+		fmt.Printf("%v\n", mo)
+	}
 
 	var scans []*MediaObject
 	_, err =  datastore.NewQuery("MediaObject").GetAll(ctx, &scans)
