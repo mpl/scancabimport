@@ -279,7 +279,7 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	clientSecret := os.Getenv("CLIENTSECRET")
 	if clientSecret == "" {
 		return nil, fmt.Errorf("CLIENTSECRET not set")
-	}       
+	}
 	conf, err := oauth2.NewConfig(&oauth2.Options{
 		Scopes: []string{"https://www.googleapis.com/auth/appengine.admin", // TODO(mpl): maybe not needed?
 			"https://www.googleapis.com/auth/datastore",
@@ -381,8 +381,8 @@ func getUsers(scans []*MediaObject) (map[int64]*UserInfo, error) {
 }
 
 func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
-		docs := make(map[int64]*Document)
-		for _, v := range scans {
+	docs := make(map[int64]*Document)
+	for _, v := range scans {
 		if v == nil {
 			continue
 		}
@@ -407,7 +407,6 @@ func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
 	}
 	return docs, nil
 }
-
 
 func main() {
 	flag.Parse()
@@ -439,12 +438,12 @@ func main() {
 		}
 		_ = users
 		for _, v := range scans {
-		if v == nil {
-			continue
-		}
-		if err := getScannedFile(fmt.Sprintf("%d", v.Id), v.Filename); err != nil {
-			log.Fatal(err)
-		}
+			if v == nil {
+				continue
+			}
+			if err := getScannedFile(fmt.Sprintf("%d", v.Id), v.Filename); err != nil {
+				log.Fatal(err)
+			}
 		}
 		docs, err := getDocuments(scans)
 		if err != nil {
@@ -465,14 +464,20 @@ func main() {
 		log.Fatal(err)
 	}
 	var scans []*MediaObject
-	if err := json.Unmarshal(scansBytes, scans); err != nil {
-		log.Fatal(err)
+	if err := json.Unmarshal(scansBytes, &scans); err != nil {
+		log.Fatalf("decoding scans: %v", err)
 	}
-	var docs map[int64]*Document
-	if err := json.Unmarshal(docsBytes, scans); err != nil {
-		log.Fatal(err)
+	var docs []*Document
+	if err := json.Unmarshal(docsBytes, &docs); err != nil {
+		log.Fatalf("decoding documents: %v", err)
 	}
-	
+
+	for _, v := range scans {
+		fmt.Printf("%v\n", v)
+	}
+	for _, v := range docs {
+		fmt.Printf("%v\n", v)
+	}
 	return
 
 	if err := uploadObjects(scansToMap(scans), docs); err != nil {
@@ -484,53 +489,51 @@ type scanAttrs map[string]string
 
 func scansToMap(mo []*MediaObject) map[int64]scanAttrs {
 	m := make(map[int64]scanAttrs, len(mo))
-	for _,v := range mo {
+	for _, v := range mo {
 		m[v.Id] = v.attrs()
 	}
 	return m
 }
 
 func (mo *MediaObject) attrs() scanAttrs {
-        attrs := make(map[string]string)
-        ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
-        attrs["creationTime"] = ctime
-        attrs["contentType"] = mo.ContentType
-        attrs["filename"] = mo.Filename
-        attrs["size"] = fmt.Sprintf("%d", mo.Size)
-        attrs["LacksDocument"] = fmt.Sprintf("%v", mo.LacksDocument)
+	attrs := make(map[string]string)
+	ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
+	attrs["creationTime"] = ctime
+	attrs["contentType"] = mo.ContentType
+	attrs["filename"] = mo.Filename
+	attrs["size"] = fmt.Sprintf("%d", mo.Size)
+	attrs["LacksDocument"] = fmt.Sprintf("%v", mo.LacksDocument)
 	// TODO(mpl): Pages into PageList or something
 	return attrs
 }
 
 func toSlice(m map[string]string) []string {
-        var s []string
-        for k,v := range m {
-                s = append(s, k, v)
-        }
-        return s
+	var s []string
+	for k, v := range m {
+		s = append(s, k, v)
+	}
+	return s
 }
 
-// TODO(mpl): important: test Tags, because it is a list and could be broken.
-
 func (mo *Document) attrs() map[string]string {
-        attrs := make(map[string]string)
-        modTime := mo.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
-        ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
-        dueDate := mo.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
-        attrs["creationTime"] = ctime
-        attrs["modTime"] = modTime
-        attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
-        attrs["title"] = mo.Title
-//        attrs["tags"] = mo.Tags // TODO(mpl): do it properly
-        attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
-        attrs["physicalLocation"] = mo.PhysicalLocation
-        attrs["dueDate"] = dueDate
+	attrs := make(map[string]string)
+	modTime := mo.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+	ctime := mo.Creation.Format(time.RFC3339)  // TODO(mpl): make sure of format
+	dueDate := mo.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+	attrs["creationTime"] = ctime
+	attrs["modTime"] = modTime
+	attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
+	attrs["title"] = mo.Title
+	//        attrs["tags"] = mo.Tags // TODO(mpl): do it properly
+	attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
+	attrs["physicalLocation"] = mo.PhysicalLocation
+	attrs["dueDate"] = dueDate
 	return attrs
 }
 
 // TODO(mpl): owner?
 
-func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
+func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 	camcl := client.NewOrFail()
 	// first pass: upload scans and their attrs
 	for scanId, scanAttrs := range scans {
@@ -542,7 +545,7 @@ func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
 		for attr, val := range scanAttrs {
 			if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, val)); err != nil {
 				return fmt.Errorf("could not set (%v, %v) for scan permanode %v: %v", attr, val, pr, err)
-			}			
+			}
 		}
 
 		// TODO(mpl): upload actual scan file!
@@ -553,10 +556,10 @@ func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
 	}
 
 	// second pass: upload docs
-	for docId, doc := range docs {
+	for _, doc := range docs {
 		pr, err := camcl.UploadNewPermanode()
 		if err != nil {
-			return fmt.Errorf("could not create permanode for doc %v: %v", docId, err)
+			return fmt.Errorf("could not create permanode for doc %v: %v", doc.Id, err)
 		}
 
 		for attr, val := range doc.attrs() {
@@ -569,18 +572,17 @@ func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
 		pageNb := 1
 		for _, pageKey := range doc.Pages {
 			pageId := pageKey.ID()
-				pn, ok := scans[pageId]["permanode"]
-				if !ok {
-					return fmt.Errorf("could not find permanode for scan %v", pageId)
-				}
-				camliPath := fmt.Sprintf("camliPath:%d", pageNb)
-				if _, err := camcl.UploadAndSignBlob(
-					schema.NewSetAttributeClaim(pr.BlobRef, camliPath, pn)); err != nil {
-					return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", camliPath, pn, pr, err)
-				}
-		}		
+			pn, ok := scans[pageId]["permanode"]
+			if !ok {
+				return fmt.Errorf("could not find permanode for scan %v", pageId)
+			}
+			camliPath := fmt.Sprintf("camliPath:%d", pageNb)
+			if _, err := camcl.UploadAndSignBlob(
+				schema.NewSetAttributeClaim(pr.BlobRef, camliPath, pn)); err != nil {
+				return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", camliPath, pn, pr, err)
+			}
+		}
 	}
 	return nil
 
 }
-

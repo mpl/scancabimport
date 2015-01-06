@@ -16,6 +16,7 @@ package datastore
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // Key represents the datastore key for a stored entity, and is immutable.
@@ -80,6 +81,14 @@ func (k *Key) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf("%d", k.ID())), nil
 }
 
-//func (k *Key) UnmarshalJSON([]byte) error {
-//
-//}
+func (k *Key) UnmarshalJSON(b []byte) error {
+	if b == nil {
+		return nil
+	}
+	n, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil {
+		return err
+	}
+	k.id = n
+	return nil
+}
