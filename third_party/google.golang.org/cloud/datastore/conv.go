@@ -251,14 +251,38 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 			fv.SetFloat(pv.GetDoubleValue())
 		case reflect.String:
 			fv.SetString(pv.GetStringValue())
-		case typeOfKeyPtrSlice.Kind():
-			var keys []*Key
-			for _, lv := range pv.GetListValue() {
-				keys = append(keys, protoToKey(lv.GetKeyValue()))
-			}
-			fv.Set(reflect.ValueOf(keys))
+//		case typeOfKeyPtrSlice.Kind():
+//			if strings.ToLower(f.field.Name) == "tags" {
+//				println("BINGO")
+//			}
+//			var keys []*Key
+//			for _, lv := range pv.GetListValue() {
+//				keys = append(keys, protoToKey(lv.GetKeyValue()))
+//			}
+//			fv.Set(reflect.ValueOf(keys))
 		case typeOfByteSlice.Kind():
-			fv.SetBytes(pv.GetBlobValue())
+			// slice types can not be differentiated with Kind(), so whichever
+			// case is the first in the switch would be the one used, regardless
+			// of whether the type is a slice of bytes or a slice of key pointers
+			// for example. Therefore, we use the string representation to detect
+			// when we get a slice of key pointers.
+			if f.field.Type.String() == "[]*datastore.Key" {
+				lv := pv.GetListValue()
+				keys := make([]*Key, 0, len(lv))
+				for _, lv := range lv {
+					keys = append(keys, protoToKey(lv.GetKeyValue()))
+				}
+				fv.Set(reflect.ValueOf(keys))                           
+			} else if f.field.Type.String() == "[]string" {
+				lv := pv.GetListValue()
+				ss := make([]string, 0, len(lv))
+				for _, lv := range lv {
+					ss = append(ss, lv.GetStringValue())
+				}
+				fv.Set(reflect.ValueOf(ss))                           
+			} else {
+				fv.SetBytes(pv.GetBlobValue())
+			}
 		case typeOfKeyPtr.Kind():
 			key := protoToKey(pv.GetKeyValue())
 			fv.Set(reflect.ValueOf(key))

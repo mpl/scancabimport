@@ -29,12 +29,16 @@ import (
 	"strings"
 	"time"
 
+	"camlistore.org/pkg/client"
+	"camlistore.org/pkg/schema"
+
 	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2"
 	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud/datastore"
 )
 
 var (
 	verbose = flag.Bool("v", false, "verbose")
+	skipGAE = flag.Bool("skipgae", false, "do not refetch from GAE, reuse metadata stored in .json in previous run")
 )
 
 const (
@@ -133,7 +137,7 @@ type Document struct {
 	Description string
 
 	// Tags is the slice of zero or more tags associated with the document by the user
-	Tags string
+	Tags []string
 
 	// LowercaseTags is the content of Tags but stored lowercase as a
 	// canonical version so searches on tags can be case-insensitive
@@ -186,6 +190,7 @@ func getScans() ([]*MediaObject, error) {
 	return scans, nil
 }
 
+/*
 func getDocuments() ([]*Document, error) {
 	var docs []*Document
 	query := ds.NewQuery("Document")
@@ -205,6 +210,7 @@ func getDocuments() ([]*Document, error) {
 	}
 	return docs, nil
 }
+*/
 
 func getScannedFile(resourceId, filename string) error {
 	if resourceId == "" {
@@ -299,7 +305,7 @@ func transportFromAPIKey() (*oauth2.Transport, error) {
 	// for the scopes specified above.
 	url := conf.AuthCodeURL("state", "online", "auto")
 	// url := conf.AuthCodeURL("state", "offline", "auto")
-	fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
+	fmt.Printf("Visit the URL for the auth dialog:\n%v\n", url)
 	fmt.Println("And enter the authorization string displayed in your browser:")
 
 	input := bufio.NewReader(os.Stdin)
@@ -348,6 +354,61 @@ func writeObjects(scans []*MediaObject, docs map[int64]*Document) error {
 	return nil
 }
 
+func getUsers(scans []*MediaObject) (map[int64]*UserInfo, error) {
+	users := make(map[int64]*UserInfo)
+	for _, v := range scans {
+		if v == nil {
+			continue
+		}
+		if *verbose {
+			fmt.Printf("%v\n", v)
+		}
+		if v.Owner != nil {
+			userId := v.Owner.ID()
+			if _, ok := users[userId]; !ok {
+				userInfo := &UserInfo{}
+				if err := ds.Get(v.Owner, userInfo); err != nil {
+					return nil, err
+				}
+				users[userId] = userInfo
+				if *verbose {
+					fmt.Printf("Owner: %v\n", userInfo)
+				}
+			}
+		}
+	}
+	return users, nil
+}
+
+func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
+		docs := make(map[int64]*Document)
+		for _, v := range scans {
+		if v == nil {
+			continue
+		}
+		if v != nil && !v.LacksDocument && v.Document != nil {
+			docId := v.Document.ID()
+			if _, ok := docs[docId]; ok {
+				if *verbose {
+					fmt.Printf("Document cache hit: %d\n", docId)
+				}
+				continue
+			}
+			document := &Document{}
+			if err := ds.Get(v.Document, document); err != nil {
+				return nil, err
+			}
+			document.Id = docId
+			docs[docId] = document
+			if *verbose {
+				fmt.Printf("Document: %v\n", document)
+			}
+		}
+	}
+	return docs, nil
+}
+
+
 func main() {
 	flag.Parse()
 
@@ -366,70 +427,40 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// TODO(mpl): encapsulate
-	{
-	scans, err := getScans()
-	if err != nil {
-		log.Fatal(err)
-	}
+	if !*skipGAE {
+		scans, err := getScans()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	docs := make(map[int64]*Document)
-	users := make(map[int64]*UserInfo)
-	for _, v := range scans {
+		users, err := getUsers(scans)
+		if err != nil {
+			log.Fatal(err)
+		}
+		_ = users
+		for _, v := range scans {
 		if v == nil {
 			continue
-		}
-		if *verbose {
-			fmt.Printf("%v\n", v)
-		}
-		if v.Owner != nil {
-			userId := v.Owner.ID()
-			if _, ok := users[userId]; !ok {
-				userInfo := &UserInfo{}
-				if err := ds.Get(v.Owner, userInfo); err != nil {
-					log.Fatal(err)
-				}
-				users[userId] = userInfo
-				if *verbose {
-					fmt.Printf("Owner: %v\n", userInfo)
-				}
-			}
 		}
 		if err := getScannedFile(fmt.Sprintf("%d", v.Id), v.Filename); err != nil {
 			log.Fatal(err)
 		}
-		if v != nil && !v.LacksDocument && v.Document != nil {
-			docId := v.Document.ID()
-			if _, ok := docs[docId]; ok {
-				if *verbose {
-					fmt.Printf("Document cache hit: %d\n", docId)
-				}
-				continue
-			}
-			document := &Document{}
-			if err := ds.Get(v.Document, document); err != nil {
-				log.Fatal(err)
-			}
-			document.Id = docId
-			docs[docId] = document
-			if *verbose {
-				fmt.Printf("Document: %v\n", document)
-			}
+		}
+		docs, err := getDocuments(scans)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := writeObjects(scans, docs); err != nil {
+			log.Fatal(err)
 		}
 	}
 
-	if err := writeObjects(scans, docs); err != nil {
-		log.Fatal(err)
-	}
-	}
-
-	// TODO(mpl): dev mode where we read directly from json
-
-	scansBytes, err := ioutil.ReadFile(scans)
+	scansBytes, err := ioutil.ReadFile(mediaObjects)
 	if err != nil {
 		log.Fatal(err)
 	}
-	docsBytes, err := ioutil.Readfile(docs)
+	docsBytes, err := ioutil.ReadFile(documents)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -442,7 +473,9 @@ func main() {
 		log.Fatal(err)
 	}
 	
-	if err := uploadObjects(scans, docs); err != nil {
+	return
+
+	if err := uploadObjects(scansToMap(scans), docs); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -452,14 +485,14 @@ type scanAttrs map[string]string
 func scansToMap(mo []*MediaObject) map[int64]scanAttrs {
 	m := make(map[int64]scanAttrs, len(mo))
 	for _,v := range mo {
-		m[mo.Id] = mo.attrs()
+		m[v.Id] = v.attrs()
 	}
 	return m
 }
 
 func (mo *MediaObject) attrs() scanAttrs {
         attrs := make(map[string]string)
-        ctime := mo.Creation.Format() // TODO(mpl): make sure of format
+        ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
         attrs["creationTime"] = ctime
         attrs["contentType"] = mo.ContentType
         attrs["filename"] = mo.Filename
@@ -481,17 +514,18 @@ func toSlice(m map[string]string) []string {
 
 func (mo *Document) attrs() map[string]string {
         attrs := make(map[string]string)
-        modTime := mo.DocDate.Format() // TODO(mpl): make sure of format
-        ctime := mo.Creation.Format() // TODO(mpl): make sure of format
-        dueDate := mo.DueDate.Format() // TODO(mpl): make sure of format
+        modTime := mo.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+        ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
+        dueDate := mo.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
         attrs["creationTime"] = ctime
         attrs["modTime"] = modTime
         attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
         attrs["title"] = mo.Title
-        attrs["tags"] = mo.Tags // TODO(mpl): do it properly
+//        attrs["tags"] = mo.Tags // TODO(mpl): do it properly
         attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
         attrs["physicalLocation"] = mo.PhysicalLocation
         attrs["dueDate"] = dueDate
+	return attrs
 }
 
 // TODO(mpl): owner?
@@ -511,6 +545,8 @@ func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
 			}			
 		}
 
+		// TODO(mpl): upload actual scan file!
+
 		// keeping track of the permanode, so we have it handy when doing the relation with the doc
 		scanAttrs["permanode"] = pr.BlobRef.String()
 		scans[scanId] = scanAttrs
@@ -527,21 +563,24 @@ func uploadObjects(scans map[int64]scanAttrs, docs map[int64]*Document) error {
 			if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, val)); err != nil {
 				return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", attr, val, pr, err)
 			}
-			// third pass: pages of each document
-			pageNb := 1
-			for _, page := range doc.Pages {
-				pn, ok := scans[scanId]["permanode"]
+		}
+
+		// third pass: pages of each document
+		pageNb := 1
+		for _, pageKey := range doc.Pages {
+			pageId := pageKey.ID()
+				pn, ok := scans[pageId]["permanode"]
 				if !ok {
-					return fmt.Errorf("could not find permanode for scan %v", scanId)
+					return fmt.Errorf("could not find permanode for scan %v", pageId)
 				}
 				camliPath := fmt.Sprintf("camliPath:%d", pageNb)
 				if _, err := camcl.UploadAndSignBlob(
 					schema.NewSetAttributeClaim(pr.BlobRef, camliPath, pn)); err != nil {
 					return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", camliPath, pn, pr, err)
 				}
-			}		
-		}
+		}		
 	}
+	return nil
 
 }
 
