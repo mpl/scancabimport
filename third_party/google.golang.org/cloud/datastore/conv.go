@@ -52,7 +52,6 @@ var (
 	typeOfByteSlice   = reflect.TypeOf([]byte{})
 	typeOfTime        = reflect.TypeOf(time.Time{})
 	typeOfKeyPtr      = reflect.TypeOf(&Key{})
-	typeOfKeyPtrSlice = reflect.SliceOf(typeOfKeyPtr)
 )
 
 type fieldMeta struct {
@@ -251,15 +250,6 @@ func protoToEntity(src *pb.Entity, dest interface{}) {
 			fv.SetFloat(pv.GetDoubleValue())
 		case reflect.String:
 			fv.SetString(pv.GetStringValue())
-//		case typeOfKeyPtrSlice.Kind():
-//			if strings.ToLower(f.field.Name) == "tags" {
-//				println("BINGO")
-//			}
-//			var keys []*Key
-//			for _, lv := range pv.GetListValue() {
-//				keys = append(keys, protoToKey(lv.GetKeyValue()))
-//			}
-//			fv.Set(reflect.ValueOf(keys))
 		case typeOfByteSlice.Kind():
 			// slice types can not be differentiated with Kind(), so whichever
 			// case is the first in the switch would be the one used, regardless
