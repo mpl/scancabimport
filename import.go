@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"camlistore.org/pkg/client"
+	"camlistore.org/pkg/osutil"
 	"camlistore.org/pkg/schema"
 
 	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2"
@@ -187,6 +188,16 @@ func getScans() ([]*MediaObject, error) {
 		}
 		query = next
 	}
+	end := -1
+	for k, v := range scans {
+		if v == nil {
+			end = k
+			break
+		}
+	}
+	if end > 0 {
+		scans = scans[:end]
+	}
 	return scans, nil
 }
 
@@ -336,8 +347,11 @@ func writeObjects(scans []*MediaObject, docs map[int64]*Document) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	docsArray := make([]*Document, len(docs))
+	docsArray := make([]*Document, 0, len(docs))
 	for _, v := range docs {
+		if v == nil {
+			panic("a nil doc was not stripped off the map")
+		}
 		docsArray = append(docsArray, v)
 	}
 	f, err = os.OpenFile(documents, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
@@ -383,10 +397,7 @@ func getUsers(scans []*MediaObject) (map[int64]*UserInfo, error) {
 func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
 	docs := make(map[int64]*Document)
 	for _, v := range scans {
-		if v == nil {
-			continue
-		}
-		if v != nil && !v.LacksDocument && v.Document != nil {
+		if !v.LacksDocument && v.Document != nil {
 			docId := v.Document.ID()
 			if _, ok := docs[docId]; ok {
 				if *verbose {
@@ -478,7 +489,6 @@ func main() {
 	for _, v := range docs {
 		fmt.Printf("%v\n", v)
 	}
-	return
 
 	if err := uploadObjects(scansToMap(scans), docs); err != nil {
 		log.Fatal(err)
@@ -534,6 +544,19 @@ func (mo *Document) attrs() map[string]string {
 // TODO(mpl): owner?
 
 func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
+	if err := os.Setenv("CAMLI_DISABLE_CLIENT_CONFIG_FILE", "true"); err != nil {
+		return err
+	}
+	if err := os.Setenv("CAMLI_SERVER", "http://localhost:3179"); err != nil {
+		return err
+	}
+	osutil.AddSecretRingFlag()
+	if err := os.Setenv("CAMLI_SECRET_RING", "/home/mpl/camlistore.org/pkg/jsonsign/testdata/test-secring.gpg"); err != nil {
+		return err
+	}
+	if err := os.Setenv("CAMLI_KEYID", "26F5ABDA"); err != nil {
+		return err
+	}
 	camcl := client.NewOrFail()
 	// first pass: upload scans and their attrs
 	for scanId, scanAttrs := range scans {
