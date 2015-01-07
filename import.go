@@ -606,18 +606,19 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 		}
 
 		// third pass: pages of each document
-		pageNb := 1
+		page := 1
 		for _, pageKey := range doc.Pages {
 			pageId := pageKey.ID()
 			pn, ok := scans[pageId]["permanode"]
 			if !ok {
 				return fmt.Errorf("could not find permanode for scan %v", pageId)
 			}
-			camliPath := fmt.Sprintf("camliPath:%d", pageNb)
+			camliPath := fmt.Sprintf("camliPath:%d", page)
 			if _, err := camcl.UploadAndSignBlob(
 				schema.NewSetAttributeClaim(pr.BlobRef, camliPath, pn)); err != nil {
 				return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", camliPath, pn, pr, err)
 			}
+			page++
 		}
 	}
 	return nil
