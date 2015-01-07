@@ -524,7 +524,7 @@ func (mo *Document) attrs() map[string]string {
 	attrs["modTime"] = modTime
 	attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
 	attrs["title"] = mo.Title
-	//        attrs["tags"] = mo.Tags // TODO(mpl): do it properly
+	//attrs["tags"] = mo.Tags // TODO(mpl): do it properly
 	attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
 	attrs["physicalLocation"] = mo.PhysicalLocation
 	attrs["dueDate"] = dueDate
@@ -548,7 +548,21 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 			}
 		}
 
-		// TODO(mpl): upload actual scan file!
+		// upload actual scan file
+		filename := scanAttrs["filename"]
+		f, err := os.Open(filepath.Join(scansDir, filename))
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		fileRef, err := schema.WriteFileFromReader(camcl, filename, f)
+		if err != nil {
+			return fmt.Errorf("could not upload scan %v: %v", filename, err)
+		}
+		// and set it as camliContent
+		if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, "camliContent", fileRef.String())); err != nil {
+			return fmt.Errorf("could not set %v as camliContent of %v: %v", filename, pr.BlobRef, err)
+		}			
 
 		// keeping track of the permanode, so we have it handy when doing the relation with the doc
 		scanAttrs["permanode"] = pr.BlobRef.String()
