@@ -94,8 +94,6 @@ type MediaObject struct {
 	Document *datastore.Key `json:"-"`
 }
 
-// TODO(mpl): review Document fields too.
-
 // Document is a structure that groups scans into a logical unit.
 // A letter (Stored as a document) could have several pages
 // (each is a MediaObject), for example.
@@ -103,7 +101,8 @@ type Document struct {
 	// Owner is the key of the UserInfo of the user that created the Document
 	Owner *datastore.Key
 
-	// Pages are the keys of each Media Object that contitute this Document
+	// Pages are the keys of each Media Object that contitute this Document.
+	// Not imported as such in camli, but used to build the Document->scans relation.
 	Pages []*datastore.Key
 
 	// TODO(mpl): Preview?
@@ -143,7 +142,7 @@ type Document struct {
 	// TODO(mpl): add a nodeattr?
 	DueDate time.Time
 
-	// TODO(mpl): starred?
+	Starred bool
 }
 
 const (
@@ -363,7 +362,7 @@ func getUsers(scans []*MediaObject) (map[int64]*UserInfo, error) {
 func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
 	docs := make(map[int64]*Document)
 	for _, v := range scans {
-//		if !v.LacksDocument && v.Document != nil {
+		//		if !v.LacksDocument && v.Document != nil {
 		if v.Document != nil {
 			docId := v.Document.ID()
 			if _, ok := docs[docId]; ok {
@@ -483,20 +482,19 @@ func (mo *MediaObject) attrs() scanAttrs {
 
 func (doc *Document) attrs() map[string]string {
 	attrs := make(map[string]string)
-	modTime := doc.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
-	ctime := doc.Creation.Format(time.RFC3339)  // TODO(mpl): make sure of format
-	dueDate := doc.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+	docDate := doc.DocDate.Format(time.RFC3339)
+	ctime := doc.Creation.Format(time.RFC3339)
+	dueDate := doc.DueDate.Format(time.RFC3339)
+	attrs[nodeattr.DatePublished] = docDate
 	attrs["creationTime"] = ctime
-	attrs["modTime"] = modTime
-	attrs["noDate"] = fmt.Sprintf("%v", doc.NoDate)
 	attrs["title"] = doc.Title
-	//attrs["tags"] = doc.Tags // TODO(mpl): do it properly
-	attrs["noTags"] = fmt.Sprintf("%v", doc.NoTags)
+	attrs[nodeattr.Description] = doc.Description
+	attrs["tags"] = strings.Join(doc.Tags, ",")
 	attrs["physicalLocation"] = doc.PhysicalLocation
 	attrs["dueDate"] = dueDate
+	attrs["starred"] = fmt.Sprintf("%v", doc.Starred)
 	return attrs
 }
-
 
 func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 	if err := os.Setenv("CAMLI_DISABLE_CLIENT_CONFIG_FILE", "true"); err != nil {
@@ -543,7 +541,7 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 		// and set it as camliContent
 		if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, "camliContent", fileRef.String())); err != nil {
 			return fmt.Errorf("could not set %v as camliContent of %v: %v", filename, pr.BlobRef, err)
-		}			
+		}
 
 		// keeping track of the permanode, so we have it handy when doing the relation with the doc
 		scanAttrs["permanode"] = pr.BlobRef.String()
@@ -558,6 +556,15 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 		}
 
 		for attr, val := range doc.attrs() {
+			if attr == "tags" {
+				for _, tag := range strings.Split(val, ",") {
+					if _, err := camcl.UploadAndSignBlob(
+						schema.NewAddAttributeClaim(pr.BlobRef, "tag", tag)); err != nil {
+						return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", "tag", tag, pr, err)
+					}
+				}
+				continue
+			}
 			if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, val)); err != nil {
 				return fmt.Errorf("could not set (%v, %v) for document permanode %v: %v", attr, val, pr, err)
 			}
