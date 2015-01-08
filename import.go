@@ -32,6 +32,7 @@ import (
 	"camlistore.org/pkg/client"
 	"camlistore.org/pkg/osutil"
 	"camlistore.org/pkg/schema"
+	"camlistore.org/pkg/schema/nodeattr"
 
 	"github.com/mpl/scancabimport/third_party/github.com/golang/oauth2"
 	"github.com/mpl/scancabimport/third_party/google.golang.org/cloud/datastore"
@@ -70,18 +71,22 @@ type UserInfo struct {
 	UploadPassword string
 }
 
+// TODO(mpl): I could probably remove altogether the fields I'm sure we won't use at all.
+
 // MediaObject represents the metadata associated with each individual uploaded scan
 type MediaObject struct {
 	// Owner is the key of the UserInfo of the user that uploaded the file
 	Owner *datastore.Key `json:"-"`
 
 	// Id is the entity ID of the key associated with this MediaObject struct
-	Id int64 `datastore:"-"`
+	// Not imported in Camlistore.
+	Id int64 `datastore:"-",json:"-"`
 
 	// Blob is the key of blobstore entry with this uploaded file
+	// Not imported in Camlistore.
 	Blob string `json:"-"`
 
-	// Creation the time when this struct was originally created
+	// Creation is the time when this the scan was uploaded.
 	Creation time.Time
 
 	// ContentType is the MIME-type of the uploaded file.
@@ -89,23 +94,30 @@ type MediaObject struct {
 	// before sending the file in the command line client, this is
 	// detected in the webapp and so this field may differ from the
 	// content-type for the associated blob in the blobstore
-	ContentType string
+	// Not imported in Camlistore.
+	ContentType string `json:"-"`
 
 	// Filename is the name of the file when it was uploaded
+	// Needed for upload, but no need to set it on the scan permanode, as it is set on the file blob.
 	Filename string
 
 	// Size in bytes of the uploaded file
-	Size int64
+	// No need to set it on the scan permanode, as it is set on the file blob.
+	Size int64 `json:"-"`
 
 	// Document is the key of the associated Document struct.
 	// A Document has many MediaObjects. When newly uploaded,
 	// a MediaObject is not associated with a Document.
+	// Not imported in Camlistore.
 	Document *datastore.Key
 
 	// LacksDocument is false when this MediaObject is associated with a Document.
 	// When newly uploaded, a MediaObject is not associated with a Document.
-	LacksDocument bool
+	// Not imported in Camlistore.
+	LacksDocument bool `json:"-"`
 }
+
+// TODO(mpl): review Document fields too.
 
 // Document is a structure that groups scans into a logical unit.
 // A letter (Stored as a document) could have several pages
@@ -200,28 +212,6 @@ func getScans() ([]*MediaObject, error) {
 	}
 	return scans, nil
 }
-
-/*
-func getDocuments() ([]*Document, error) {
-	var docs []*Document
-	query := ds.NewQuery("Document")
-	query = query.Limit(scansRequestLimit)
-	for {
-		dc := make([]*Document, docsRequestLimit)
-		//		keys, next, err := ds.RunQuery(query, dc)
-		_, next, err := ds.RunQuery(query, dc)
-		if err != nil {
-			return nil, err
-		}
-		docs = append(docs, dc...)
-		if next == nil {
-			break
-		}
-		query = next
-	}
-	return docs, nil
-}
-*/
 
 func getScannedFile(resourceId, filename string) error {
 	if resourceId == "" {
@@ -506,42 +496,30 @@ func scansToMap(mo []*MediaObject) map[int64]scanAttrs {
 }
 
 func (mo *MediaObject) attrs() scanAttrs {
+	// TODO(mpl): owner?
 	attrs := make(map[string]string)
-	ctime := mo.Creation.Format(time.RFC3339) // TODO(mpl): make sure of format
-	attrs["creationTime"] = ctime
-	attrs["contentType"] = mo.ContentType
+	ctime := mo.Creation.Format(time.RFC3339)
+	attrs[nodeattr.DateCreated] = ctime
 	attrs["filename"] = mo.Filename
-	attrs["size"] = fmt.Sprintf("%d", mo.Size)
-	attrs["LacksDocument"] = fmt.Sprintf("%v", mo.LacksDocument)
-	// TODO(mpl): Pages into PageList or something
 	return attrs
 }
 
-func toSlice(m map[string]string) []string {
-	var s []string
-	for k, v := range m {
-		s = append(s, k, v)
-	}
-	return s
-}
-
-func (mo *Document) attrs() map[string]string {
+func (doc *Document) attrs() map[string]string {
 	attrs := make(map[string]string)
-	modTime := mo.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
-	ctime := mo.Creation.Format(time.RFC3339)  // TODO(mpl): make sure of format
-	dueDate := mo.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+	modTime := doc.DocDate.Format(time.RFC3339) // TODO(mpl): make sure of format
+	ctime := doc.Creation.Format(time.RFC3339)  // TODO(mpl): make sure of format
+	dueDate := doc.DueDate.Format(time.RFC3339) // TODO(mpl): make sure of format
 	attrs["creationTime"] = ctime
 	attrs["modTime"] = modTime
-	attrs["noDate"] = fmt.Sprintf("%v", mo.NoDate)
-	attrs["title"] = mo.Title
-	//attrs["tags"] = mo.Tags // TODO(mpl): do it properly
-	attrs["noTags"] = fmt.Sprintf("%v", mo.NoTags)
-	attrs["physicalLocation"] = mo.PhysicalLocation
+	attrs["noDate"] = fmt.Sprintf("%v", doc.NoDate)
+	attrs["title"] = doc.Title
+	//attrs["tags"] = doc.Tags // TODO(mpl): do it properly
+	attrs["noTags"] = fmt.Sprintf("%v", doc.NoTags)
+	attrs["physicalLocation"] = doc.PhysicalLocation
 	attrs["dueDate"] = dueDate
 	return attrs
 }
 
-// TODO(mpl): owner?
 
 func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 	if err := os.Setenv("CAMLI_DISABLE_CLIENT_CONFIG_FILE", "true"); err != nil {
@@ -566,6 +544,9 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 		}
 
 		for attr, val := range scanAttrs {
+			if attr == "filename" {
+				continue
+			}
 			if _, err := camcl.UploadAndSignBlob(schema.NewSetAttributeClaim(pr.BlobRef, attr, val)); err != nil {
 				return fmt.Errorf("could not set (%v, %v) for scan permanode %v: %v", attr, val, pr, err)
 			}
