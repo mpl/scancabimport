@@ -106,18 +106,20 @@ type Document struct {
 	// Pages are the keys of each Media Object that contitute this Document
 	Pages []*datastore.Key
 
+	// TODO(mpl): Preview?
+
 	// Id is the entity ID of the key associated with this Document struct
+	// Not imported in Camlistore, and not needed, but kept in json for easier debugging.
 	Id int64 `datastore:"-"`
 
 	// DocDate is the user-nominated date associated with this document. It can
 	// store any date the user likes but is intended to be when the document was
-	// received, or, perhaps, written or sent
+	// received, or, perhaps, written or sent.
+	// Stored in camli as nodeattr.DatePublished.
 	DocDate time.Time
 
-	// NoDate is false when DocDate has been set by the user
-	NoDate bool
-
 	// Creation is the date the Document struct was created
+	// Stored in camli as nodeattr.DateCreated.
 	Creation time.Time
 
 	// Title is the user-nominated title of the document
@@ -129,22 +131,19 @@ type Document struct {
 	// Tags is the slice of zero or more tags associated with the document by the user
 	Tags []string
 
-	// LowercaseTags is the content of Tags but stored lowercase as a
-	// canonical version so searches on tags can be case-insensitive
-	LowercaseTags string
-
-	// NoTags is true when Tags is empty
-	NoTags bool
-
 	// PhysicalLocation is the user-nominated description of the location
 	// of the physical document of which the MediaObjects associated with this
 	// Document are scans
+	// TODO(mpl): add a nodeattr?
 	PhysicalLocation string
 
 	// DueDate is the user-nominated date that the document is "due". The
 	// meaning of what "due" means in relation to each particular document
 	// is up to the user
+	// TODO(mpl): add a nodeattr?
 	DueDate time.Time
+
+	// TODO(mpl): starred?
 }
 
 const (
