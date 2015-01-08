@@ -71,50 +71,27 @@ type UserInfo struct {
 	UploadPassword string
 }
 
-// TODO(mpl): I could probably remove altogether the fields I'm sure we won't use at all.
-
 // MediaObject represents the metadata associated with each individual uploaded scan
 type MediaObject struct {
 	// Owner is the key of the UserInfo of the user that uploaded the file
 	Owner *datastore.Key `json:"-"`
 
 	// Id is the entity ID of the key associated with this MediaObject struct
-	// Not imported in Camlistore.
-	Id int64 `datastore:"-",json:"-"`
-
-	// Blob is the key of blobstore entry with this uploaded file
-	// Not imported in Camlistore.
-	Blob string `json:"-"`
+	// Not imported in Camlistore, but needed to fetch the actual scan.
+	Id int64 `datastore:"-"`
 
 	// Creation is the time when this the scan was uploaded.
 	Creation time.Time
-
-	// ContentType is the MIME-type of the uploaded file.
-	// As the mime/multipart package does not detect Content-Type
-	// before sending the file in the command line client, this is
-	// detected in the webapp and so this field may differ from the
-	// content-type for the associated blob in the blobstore
-	// Not imported in Camlistore.
-	ContentType string `json:"-"`
 
 	// Filename is the name of the file when it was uploaded
 	// Needed for upload, but no need to set it on the scan permanode, as it is set on the file blob.
 	Filename string
 
-	// Size in bytes of the uploaded file
-	// No need to set it on the scan permanode, as it is set on the file blob.
-	Size int64 `json:"-"`
-
 	// Document is the key of the associated Document struct.
 	// A Document has many MediaObjects. When newly uploaded,
 	// a MediaObject is not associated with a Document.
-	// Not imported in Camlistore.
-	Document *datastore.Key
-
-	// LacksDocument is false when this MediaObject is associated with a Document.
-	// When newly uploaded, a MediaObject is not associated with a Document.
-	// Not imported in Camlistore.
-	LacksDocument bool `json:"-"`
+	// Not imported in Camlistore, but used to get all the documents.
+	Document *datastore.Key `json:"-"`
 }
 
 // TODO(mpl): review Document fields too.
@@ -387,7 +364,8 @@ func getUsers(scans []*MediaObject) (map[int64]*UserInfo, error) {
 func getDocuments(scans []*MediaObject) (map[int64]*Document, error) {
 	docs := make(map[int64]*Document)
 	for _, v := range scans {
-		if !v.LacksDocument && v.Document != nil {
+//		if !v.LacksDocument && v.Document != nil {
+		if v.Document != nil {
 			docId := v.Document.ID()
 			if _, ok := docs[docId]; ok {
 				if *verbose {
