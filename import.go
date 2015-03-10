@@ -533,8 +533,8 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
 		fileRef, err := schema.WriteFileFromReader(camcl, filename, f)
+		f.Close()
 		if err != nil {
 			return fmt.Errorf("could not upload scan %v: %v", filename, err)
 		}
@@ -543,7 +543,7 @@ func uploadObjects(scans map[int64]scanAttrs, docs []*Document) error {
 			return fmt.Errorf("could not set %v as camliContent of %v: %v", filename, pr.BlobRef, err)
 		}
 
-		// keeping track of the permanode, so we have it handy when doing the relation with the doc
+		// keeping track of the permanode, so we have them handy when doing the relation with the doc
 		scanAttrs["permanode"] = pr.BlobRef.String()
 		scans[scanId] = scanAttrs
 	}
